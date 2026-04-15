@@ -38,3 +38,10 @@ func (r *bodyRecorder) Status() int {
 func (r *bodyRecorder) Body() []byte {
 	return r.buf.Bytes()
 }
+
+// Unwrap returns the underlying http.ResponseWriter.
+// This allows middleware that performs type assertions (e.g. to http.Flusher
+// or http.Hijacker) to reach through to the original writer.
+func (r *bodyRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
