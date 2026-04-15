@@ -1,81 +1,70 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 )
 
-// Config holds the runtime configuration for beehive-proxy.
+// Config holds all runtime configuration for beehive-proxy.
 type Config struct {
-	// ListenAddr is the address the proxy listens on, e.g. ":8080".
-	ListenAddr string
-
-	// TargetURL is the backend URL to proxy requests to.
-	TargetURL string
-
-	// MetricsAddr is the address to expose Prometheus metrics on, e.g. ":9090".
-	MetricsAddr string
-
-	// ReadTimeout is the maximum duration for reading the entire request.
-	ReadTimeout time.Duration
-
-	// WriteTimeout is the maximum duration before timing out writes of the response.
-	WriteTimeout time.Duration
+	TargetURL       string
+	ListenAddr      string
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	RateLimit       int           // requests per window per IP (0 = disabled)
+	RateLimitWindow time.Duration // window duration for rate limiting
 }
 
-// FromEnv builds a Config from environment variables with sensible defaults.
-//
-// Environment variables:
-//   PROXY_LISTEN_ADDR  (default: ":8080")
-//   PROXY_TARGET_URL   (required)
-//   PROXY_METRICS_ADDR (default: ":9090")
-//   PROXY_READ_TIMEOUT_S  (seconds, default: 30)
-//   PROXY_WRITE_TIMEOUT_S (seconds, default: 30)
+// FromEnv loads configuration from environment variables.
 func FromEnv() (*Config, error) {
-	target := os.Getenv("PROXY_TARGET_URL")
+	target := envString("TARGET_URL", "")
 	if target == "" {
-		return nil, fmt.Errorf("config: PROXY_TARGET_URL must be set")
+		return nil, errors.New("TARGET_URL is required")
 	}
 
-	readSecs, err := envInt("PROXY_READ_TIMEOUT_S", 30)
-	if err != nil {
-		return nil, err
+	readSec := envInt("READ_TIMEOUT_SECONDS", 30)
+	if readSec <= 0 {
+		return nil, fmt.Errorf("READ_TIMEOUT_SECONDS must be positive, got %d", readSec)
 	}
 
-	writeSecs, err := envInt("PROXY_WRITE_TIMEOUT_S", 30)
-	if err != nil {
-		return nil, err
+	writeSec := envInt("WRITE_TIMEOUT_SECONDS", 30)
+	if writeSec <= 0 {
+		return nil, fmt.Errorf("WRITE_TIMEOUT_SECONDS must be positive, got %d", writeSec)
+	}
+
+	rateLimitWindowSec := envInt("RATE_LIMIT_WINDOW_SECONDS", 60)
+	if rateLimitWindowSec <= 0 {
+		return nil, fmt.Errorf("RATE_LIMIT_WINDOW_SECONDS must be positive, got %d", rateLimitWindowSec)
 	}
 
 	return &Config{
-		ListenAddr:   envString("PROXY_LISTEN_ADDR", ":8080"),
-		TargetURL:    target,
-		MetricsAddr:  envString("PROXY_METRICS_ADDR", ":9090"),
-		ReadTimeout:  time.Duration(readSecs) * time.Second,
-		WriteTimeout: time.Duration(writeSecs) * time.Second,
+		TargetURL:       target,
+		ListenAddr:      envString("LISTEN_ADDR", ":8080"),
+		ReadTimeout:     time.Duration(readSec) * time.Second,
+		WriteTimeout:    time.Duration(writeSec) * time.Second,
+		RateLimit:       envInt("RATE_LIMIT", 0),
+		RateLimitWindow: time.Duration(rateLimitWindowSec) * time.Second,
 	}, nil
 }
 
-func envString(key, def string) string {
+func envString(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return def
+	return fallback
 }
 
-func envInt(key string, def int) (int, error) {
+func envInt(key string, fallback int) int {
 	v := os.Getenv(key)
 	if v == "" {
-		return def, nil
+		return fallback
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return 0, fmt.Errorf("config: %s must be an integer, got %q", key, v)
+		return fallback
 	}
-	if n <= 0 {
-		return 0, fmt.Errorf("config: %s must be positive, got %d", key, n)
-	}
-	return n, nil
+	return n
 }
