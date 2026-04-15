@@ -13,27 +13,29 @@ import (
 type Config struct {
 	TargetURL       string
 	ListenAddr      string
+	MetricsAddr     string
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
-	MetricsPath     string
+	MaxRetries      int
 	RateLimit       int
 	RateLimitWindow time.Duration
 	CBThreshold     int
 	CBCooldown      time.Duration
-	RetryMaxAttempts int
-	RetryDelay      time.Duration
+	CacheTTL        time.Duration
+	HealthzPath     string
+	CORSOrigins     string
+	LogLevel        string
 }
 
-// FromEnv reads configuration from environment variables, returning an error
-// if required values are missing or invalid.
+// FromEnv builds a Config by reading environment variables with sensible defaults.
 func FromEnv() (*Config, error) {
 	target := envString("BEEHIVE_TARGET_URL", "")
 	if target == "" {
 		return nil, errors.New("BEEHIVE_TARGET_URL is required")
 	}
 	if _, err := url.ParseRequestURI(target); err != nil {
-		return nil, fmt.Errorf("BEEHIVE_TARGET_URL is invalid: %w", err)
+		return nil, fmt.Errorf("invalid BEEHIVE_TARGET_URL: %w", err)
 	}
 
 	readTimeout, err := envDuration("BEEHIVE_READ_TIMEOUT", 30*time.Second)
@@ -48,32 +50,35 @@ func FromEnv() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("BEEHIVE_IDLE_TIMEOUT: %w", err)
 	}
-	retryDelay, err := envDuration("BEEHIVE_RETRY_DELAY", 100*time.Millisecond)
+	rateLimitWindow, err := envDuration("BEEHIVE_RATE_LIMIT_WINDOW", time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("BEEHIVE_RETRY_DELAY: %w", err)
+		return nil, fmt.Errorf("BEEHIVE_RATE_LIMIT_WINDOW: %w", err)
 	}
 	cbCooldown, err := envDuration("BEEHIVE_CB_COOLDOWN", 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("BEEHIVE_CB_COOLDOWN: %w", err)
 	}
-	rateLimitWindow, err := envDuration("BEEHIVE_RATE_LIMIT_WINDOW", time.Second)
+	cacheTTL, err := envDuration("BEEHIVE_CACHE_TTL", 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("BEEHIVE_RATE_LIMIT_WINDOW: %w", err)
+		return nil, fmt.Errorf("BEEHIVE_CACHE_TTL: %w", err)
 	}
 
 	return &Config{
-		TargetURL:        target,
-		ListenAddr:       envString("BEEHIVE_LISTEN_ADDR", ":8080"),
-		ReadTimeout:      readTimeout,
-		WriteTimeout:     writeTimeout,
-		IdleTimeout:      idleTimeout,
-		MetricsPath:      envString("BEEHIVE_METRICS_PATH", "/metrics"),
-		RateLimit:        envInt("BEEHIVE_RATE_LIMIT", 100),
-		RateLimitWindow:  rateLimitWindow,
-		CBThreshold:      envInt("BEEHIVE_CB_THRESHOLD", 5),
-		CBCooldown:       cbCooldown,
-		RetryMaxAttempts: envInt("BEEHIVE_RETRY_MAX_ATTEMPTS", 3),
-		RetryDelay:       retryDelay,
+		TargetURL:       target,
+		ListenAddr:      envString("BEEHIVE_LISTEN_ADDR", ":8080"),
+		MetricsAddr:     envString("BEEHIVE_METRICS_ADDR", ":9090"),
+		ReadTimeout:     readTimeout,
+		WriteTimeout:    writeTimeout,
+		IdleTimeout:     idleTimeout,
+		MaxRetries:      envInt("BEEHIVE_MAX_RETRIES", 3),
+		RateLimit:       envInt("BEEHIVE_RATE_LIMIT", 100),
+		RateLimitWindow: rateLimitWindow,
+		CBThreshold:     envInt("BEEHIVE_CB_THRESHOLD", 5),
+		CBCooldown:      cbCooldown,
+		CacheTTL:        cacheTTL,
+		HealthzPath:     envString("BEEHIVE_HEALTHZ_PATH", "/healthz"),
+		CORSOrigins:     envString("BEEHIVE_CORS_ORIGINS", "*"),
+		LogLevel:        envString("BEEHIVE_LOG_LEVEL", "info"),
 	}, nil
 }
 
