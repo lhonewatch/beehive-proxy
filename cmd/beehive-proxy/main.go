@@ -1,55 +1,53 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"log/slog"
+	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"beehive-proxy/internal/config"
-	"beehive-proxy/internal/metrics"
-	"beehive-proxy/internal/middleware"
-	"beehive-proxy/internal/proxy"
-	"beehive-proxy/internal/tracing"
+	"github.com/example/beehive-proxy/internal/config"
+	"github.com/example/beehive-proxy/internal/metrics"
+	"github.com/example/beehive-proxy/internal/middleware"
+	"github.com/example/beehive-proxy/internal/proxy"
+	"github.com/example/beehive-proxy/internal/tracing"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := log.New(os.Stdout, "", 0)
 
 	cfg, err := config.FromEnv()
 	if err != nil {
-		logger.Error("invalid configuration", "error", err)
-		os.Exit(1)
+		logger.Fatalf("config error: %v", err)
 	}
 
-	retryTransport := middleware.NewRetryTransport(nil, middleware.RetryConfig{
-		MaxAttempts: cfg.RetryMaxAttempts,
-		Delay:       cfg.RetryDelay,
-		Logger:      logger,
-	})
+	transport := middleware.NewRetryTransport(http.DefaultTransport, cfg.MaxRetries)
 
-	proxyHandler := proxy.NewHandler(cfg.TargetURL, tracing.DefaultTracerFunc, metrics.ObserveRequest, retryTransport)
+	proxyHandler := proxy.NewHandler(cfg.TargetURL, tracing.DefaultTracerFunc, transport)
 
-	chain := middleware.Recovery(
-		middleware.RequestLogger(logger,
-			middleware.NewCircuitBreaker(middleware.CircuitBreakerConfig{
-				Threshold: cfg.CBThreshold,
-				Cooldown:  cfg.CBCooldown,
-			},
-				middleware.NewRateLimiter(cfg.RateLimit, cfg.RateLimitWindow, proxyHandler),
-			),
-		),
-	)
+	chain := proxyHandler
+
+	// IP filter (optional)
+	if ipf := cfg.IPFilterMiddleware(); ipf != nil {
+		chain = ipf(chain)
+	}
+
+	chain = middleware.NewCacheMiddleware(middleware.NewResponseCache(cfg.CacheTTL))(chain)
+	chain = middleware.NewCompress()(chain)
+	chain = middleware.NewCORS(middleware.DefaultCORSOptions(cfg.AllowedOrigins...))(chain)
+	chain = middleware.NewCircuitBreaker(cfg.CBThreshold, cfg.CBCooldown)(chain)
+	chain = middleware.NewRateLimiter(cfg.RateLimit, cfg.RateLimitWindow)(chain)
+	chain = middleware.NewTimeout(cfg.RequestTimeout)(chain)
+	chain = middleware.RequestLogger(logger)(chain)
+	chain = middleware.Recovery(logger)(chain)
+
+	hc := middleware.NewHealthChecker(chain)
 
 	mux := http.NewServeMux()
-	mux.Handle(cfg.MetricsPath, promhttp.Handler())
-	mux.Handle("/", chain)
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/", metrics.Middleware(hc))
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
@@ -59,23 +57,10 @@ func main() {
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 
-	go func() {
-		logger.Info("starting beehive-proxy", "addr", cfg.ListenAddr, "target", cfg.TargetURL)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
-		}
-	}()
+	logger.Printf(`{"level":"info","msg":"starting beehive-proxy","addr":%q,"target":%q,"ip_filter":%q}`,
+		cfg.ListenAddr, cfg.TargetURL, cfg.IPFilterMode)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	logger.Info("shutting down gracefully")
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("shutdown error", "error", err)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Fatalf("server error: %v", err)
 	}
 }

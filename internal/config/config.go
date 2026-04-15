@@ -6,29 +6,33 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/example/beehive-proxy/internal/middleware"
 )
 
 // Config holds all runtime configuration for beehive-proxy.
 type Config struct {
 	TargetURL       string
 	ListenAddr      string
-	MetricsAddr     string
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
+	RequestTimeout  time.Duration
 	MaxRetries      int
 	RateLimit       int
 	RateLimitWindow time.Duration
 	CBThreshold     int
 	CBCooldown      time.Duration
 	CacheTTL        time.Duration
-	HealthzPath     string
-	CORSOrigins     string
-	LogLevel        string
+	AllowedOrigins  []string
+	// IP filter
+	IPFilterMode    string   // "allowlist", "blocklist", or ""
+	IPFilterCIDRs   []string
 }
 
-// FromEnv builds a Config by reading environment variables with sensible defaults.
+// FromEnv builds a Config from environment variables.
 func FromEnv() (*Config, error) {
 	target := envString("BEEHIVE_TARGET_URL", "")
 	if target == "" {
@@ -50,7 +54,11 @@ func FromEnv() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("BEEHIVE_IDLE_TIMEOUT: %w", err)
 	}
-	rateLimitWindow, err := envDuration("BEEHIVE_RATE_LIMIT_WINDOW", time.Second)
+	requestTimeout, err := envDuration("BEEHIVE_REQUEST_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("BEEHIVE_REQUEST_TIMEOUT: %w", err)
+	}
+	rateLimitWindow, err := envDuration("BEEHIVE_RATE_LIMIT_WINDOW", time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("BEEHIVE_RATE_LIMIT_WINDOW: %w", err)
 	}
@@ -63,52 +71,73 @@ func FromEnv() (*Config, error) {
 		return nil, fmt.Errorf("BEEHIVE_CACHE_TTL: %w", err)
 	}
 
+	ipMode := strings.ToLower(envString("BEEHIVE_IP_FILTER_MODE", ""))
+	if ipMode != "" && ipMode != "allowlist" && ipMode != "blocklist" {
+		return nil, fmt.Errorf("BEEHIVE_IP_FILTER_MODE must be 'allowlist', 'blocklist', or empty; got %q", ipMode)
+	}
+	var ipCIDRs []string
+	if raw := envString("BEEHIVE_IP_FILTER_CIDRS", ""); raw != "" {
+		for _, c := range strings.Split(raw, ",") {
+			if t := strings.TrimSpace(c); t != "" {
+				ipCIDRs = append(ipCIDRs, t)
+			}
+		}
+	}
+
 	return &Config{
 		TargetURL:       target,
 		ListenAddr:      envString("BEEHIVE_LISTEN_ADDR", ":8080"),
-		MetricsAddr:     envString("BEEHIVE_METRICS_ADDR", ":9090"),
 		ReadTimeout:     readTimeout,
 		WriteTimeout:    writeTimeout,
 		IdleTimeout:     idleTimeout,
+		RequestTimeout:  requestTimeout,
 		MaxRetries:      envInt("BEEHIVE_MAX_RETRIES", 3),
 		RateLimit:       envInt("BEEHIVE_RATE_LIMIT", 100),
 		RateLimitWindow: rateLimitWindow,
 		CBThreshold:     envInt("BEEHIVE_CB_THRESHOLD", 5),
 		CBCooldown:      cbCooldown,
 		CacheTTL:        cacheTTL,
-		HealthzPath:     envString("BEEHIVE_HEALTHZ_PATH", "/healthz"),
-		CORSOrigins:     envString("BEEHIVE_CORS_ORIGINS", "*"),
-		LogLevel:        envString("BEEHIVE_LOG_LEVEL", "info"),
+		AllowedOrigins:  strings.Split(envString("BEEHIVE_ALLOWED_ORIGINS", "*"), ","),
+		IPFilterMode:    ipMode,
+		IPFilterCIDRs:   ipCIDRs,
 	}, nil
 }
 
-func envString(key, fallback string) string {
+// IPFilterMiddleware returns the configured IP filter middleware, or nil if disabled.
+func (c *Config) IPFilterMiddleware() func(http.Handler) http.Handler {
+	if c.IPFilterMode == "" {
+		return nil
+	}
+	mode := middleware.Allowlist
+	if c.IPFilterMode == "blocklist" {
+		mode = middleware.Blocklist
+	}
+	return middleware.NewIPFilter(mode, c.IPFilterCIDRs)
+}
+
+func envString(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return fallback
+	return def
 }
 
-func envInt(key string, fallback int) int {
+func envInt(key string, def int) int {
 	v := os.Getenv(key)
 	if v == "" {
-		return fallback
+		return def
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return fallback
+		return def
 	}
 	return n
 }
 
-func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+func envDuration(key string, def time.Duration) (time.Duration, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return fallback, nil
+		return def, nil
 	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("invalid duration %q: %w", v, err)
-	}
-	return d, nil
+	return time.ParseDuration(v)
 }
