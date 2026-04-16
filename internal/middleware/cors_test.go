@@ -95,3 +95,17 @@ func TestCORS_SetsMaxAge(t *testing.T) {
 		t.Errorf("expected 86400, got %q", got)
 	}
 }
+
+func TestCORS_NoOriginHeaderSkipsCORS(t *testing.T) {
+	opts := DefaultCORSOptions()
+	handler := NewCORS(opts)(echoHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected no ACAO header when Origin is absent, got %q", got)
+	}
+}
