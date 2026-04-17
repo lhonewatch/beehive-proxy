@@ -25,8 +25,13 @@ func makeToken(claims map[string]interface{}, secret []byte) string {
 
 func jwtOKHandler(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 
+// newJWTHandler is a test helper that creates a JWT middleware wrapping jwtOKHandler.
+func newJWTHandler() http.Handler {
+	return NewJWT(JWTOptions{Secret: jwtSecret})(http.HandlerFunc(jwtOKHandler))
+}
+
 func TestJWT_AllowsValidToken(t *testing.T) {
-	h := NewJWT(JWTOptions{Secret: jwtSecret})(http.HandlerFunc(jwtOKHandler))
+	h := newJWTHandler()
 	token := makeToken(map[string]interface{}{"sub": "user1"}, jwtSecret)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -38,7 +43,7 @@ func TestJWT_AllowsValidToken(t *testing.T) {
 }
 
 func TestJWT_BlocksMissingToken(t *testing.T) {
-	h := NewJWT(JWTOptions{Secret: jwtSecret})(http.HandlerFunc(jwtOKHandler))
+	h := newJWTHandler()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -48,7 +53,7 @@ func TestJWT_BlocksMissingToken(t *testing.T) {
 }
 
 func TestJWT_BlocksWrongSignature(t *testing.T) {
-	h := NewJWT(JWTOptions{Secret: jwtSecret})(http.HandlerFunc(jwtOKHandler))
+	h := newJWTHandler()
 	token := makeToken(map[string]interface{}{"sub": "user1"}, []byte("wrongsecret"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -76,7 +81,7 @@ func TestJWT_ForwardsSubjectHeader(t *testing.T) {
 }
 
 func TestJWT_BlocksMalformedToken(t *testing.T) {
-	h := NewJWT(JWTOptions{Secret: jwtSecret})(http.HandlerFunc(jwtOKHandler))
+	h := newJWTHandler()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 20))
 	rec := httptest.NewRecorder()
