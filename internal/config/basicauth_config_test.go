@@ -69,3 +69,26 @@ func TestFromEnv_BasicAuthMiddlewareEnforces(t *testing.T) {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
 }
+
+func TestFromEnv_BasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TARGET_URL":         "http://example.com",
+		"BASIC_AUTH_ENABLED": "true",
+		"BASIC_AUTH_USERS":   "user:hunter2",
+	})
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mw := cfg.BasicAuth.BasicAuthMiddleware()
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.SetBasicAuth("user", "hunter2")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
