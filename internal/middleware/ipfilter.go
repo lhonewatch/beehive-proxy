@@ -48,6 +48,11 @@ func NewIPFilter(mode IPFilterMode, cidrs []string) func(http.Handler) http.Hand
 
 func (f *IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip := realIP(r)
+	// If we cannot determine the client IP, deny the request to fail safely.
+	if ip == nil {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	matched := f.matches(ip)
 
 	if f.mode == Allowlist && !matched {
