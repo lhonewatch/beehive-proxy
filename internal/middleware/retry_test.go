@@ -94,3 +94,19 @@ func TestRetryTransport_ExhaustsAttempts(t *testing.T) {
 		t.Errorf("expected 3 calls, got %d", stub.callCount.Load())
 	}
 }
+
+func TestRetryTransport_ExhaustsAttemptsOnError(t *testing.T) {
+	transportErr := errors.New("dial timeout")
+	stub := &stubTransport{
+		responses: []*http.Response{nil, nil, nil},
+		errs:      []error{transportErr, transportErr, transportErr},
+	}
+	rt := NewRetryTransport(stub, RetryConfig{MaxAttempts: 3, Delay: time.Millisecond})
+	_, err := rt.RoundTrip(newStubReq(t))
+	if err == nil {
+		t.Fatal("expected error after exhausted retries, got nil")
+	}
+	if stub.callCount.Load() != 3 {
+		t.Errorf("expected 3 calls, got %d", stub.callCount.Load())
+	}
+}
