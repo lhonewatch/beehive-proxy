@@ -61,3 +61,18 @@ func TestFromEnv_SecurityHeadersMiddlewareInjects(t *testing.T) {
 		t.Fatal("expected X-Frame-Options header")
 	}
 }
+
+func TestFromEnv_SecurityHeadersMiddlewareInjectsContentTypeOptions(t *testing.T) {
+	setEnv(t, map[string]string{"TARGET_URL": "http://example.com"})
+	cfg, err := config.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mw := cfg.SecurityHeaders.Middleware()
+	handle := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	rec := httptest.NewRecorder()
+	handle.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("expected X-Content-Type-Options: nosniff header")
+	}
+}
