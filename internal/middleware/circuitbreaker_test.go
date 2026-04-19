@@ -81,3 +81,20 @@ func TestCircuitBreaker_IndependentInstances(t *testing.T) {
 		t.Fatal("cb2 should be unaffected by cb1 failures")
 	}
 }
+
+func TestCircuitBreaker_RemainsOpenDuringCooldown(t *testing.T) {
+	cb := NewCircuitBreaker(2, 200*time.Millisecond)
+	handler := cb.Middleware(errorHandler(http.StatusInternalServerError))
+
+	for i := 0; i < 2; i++ {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	}
+
+	// Before cooldown expires, circuit should still be open
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 while circuit is open, got %d", rec.Code)
+	}
+}
