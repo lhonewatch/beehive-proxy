@@ -12,6 +12,9 @@ import (
 //   PROXY_API_VERSION_HEADER  — header name (default: X-API-Version)
 //   PROXY_API_VERSION_DEFAULT — fallback version string (default: "")
 //   PROXY_API_VERSION_PREFIXES — comma-separated prefix=version pairs, e.g. /v1/=1,/v2/=2
+//
+// Returns nil if PROXY_API_VERSION_PREFIXES is unset or contains no valid pairs,
+// in which case no request-version middleware is registered.
 func reqVersionConfigFromEnv() func(http.Handler) http.Handler {
 	header := envString("PROXY_API_VERSION_HEADER", "X-API-Version")
 	defaultVer := envString("PROXY_API_VERSION_DEFAULT", "")
@@ -19,6 +22,18 @@ func reqVersionConfigFromEnv() func(http.Handler) http.Handler {
 	if raw == "" {
 		return nil
 	}
+	prefixes := parsePrefixVersionPairs(raw)
+	if len(prefixes) == 0 {
+		return nil
+	}
+	return func(next http.Handler) http.Handler {
+		return middleware.NewRequestVersion(header, defaultVer, prefixes, next)
+	}
+}
+
+// parsePrefixVersionPairs parses a comma-separated list of "prefix=version" pairs
+// into a map. Pairs with an empty prefix or missing "=" separator are silently skipped.
+func parsePrefixVersionPairs(raw string) map[string]string {
 	prefixes := map[string]string{}
 	for _, pair := range strings.Split(raw, ",") {
 		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
@@ -26,12 +41,7 @@ func reqVersionConfigFromEnv() func(http.Handler) http.Handler {
 			prefixes[parts[0]] = parts[1]
 		}
 	}
-	if len(prefixes) == 0 {
-		return nil
-	}
-	return func(next http.Handler) http.Handler {
-		return middleware.NewRequestVersion(header, defaultVer, prefixes, next)
-	}
+	return prefixes
 }
 
 func init() {
