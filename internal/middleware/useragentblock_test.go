@@ -75,3 +75,14 @@ func TestUserAgentBlock_EmptyPatternsAllowsAll(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
+
+func TestUserAgentBlock_MissingUserAgentAllowsRequest(t *testing.T) {
+	h := buildUABlock([]string{"badbot"}, 0)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// No User-Agent header set
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for missing User-Agent, got %d", rec.Code)
+	}
+}
