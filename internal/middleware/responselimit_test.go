@@ -54,3 +54,12 @@ func TestResponseSizeLimit_ExactLimit(t *testing.T) {
 		t.Fatalf("expected 64 bytes, got %d", rec.Body.Len())
 	}
 }
+
+func TestResponseSizeLimit_EmptyBody(t *testing.T) {
+	h := middleware.NewResponseSizeLimit(100)(writeLargeBodyHandler(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected 0 bytes, got %d", rec.Body.Len())
+	}
+}
