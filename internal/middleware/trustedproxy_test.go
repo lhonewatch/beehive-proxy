@@ -73,3 +73,17 @@ func TestTrustedProxy_CIDRRange(t *testing.T) {
 		t.Fatalf("expected 8.8.8.8, got %s", got)
 	}
 }
+
+func TestTrustedProxy_EmptyCIDRsSkipsRewrite(t *testing.T) {
+	var got string
+	handler := buildTrustedProxy([]string{})(captureRemoteAddr(&got))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:4321"
+	req.Header.Set("X-Forwarded-For", "5.6.7.8")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if got != "10.0.0.1:4321" {
+		t.Fatalf("expected original RemoteAddr when no CIDRs configured, got %s", got)
+	}
+}
