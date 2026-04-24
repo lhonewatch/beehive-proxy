@@ -53,3 +53,19 @@ func NewSecurityHeaders(opts SecurityHeadersOptions) func(http.Handler) http.Han
 		})
 	}
 }
+
+// NewRemoveHeaders returns middleware that removes the specified response
+// headers before they are sent to the client. This is useful for stripping
+// headers added by upstream services that should not be exposed externally
+// (e.g. "X-Powered-By", "Server").
+func NewRemoveHeaders(headers ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			h := w.Header()
+			for _, name := range headers {
+				h.Del(name)
+			}
+		})
+	}
+}
