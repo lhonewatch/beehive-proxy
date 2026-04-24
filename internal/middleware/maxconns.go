@@ -1,12 +1,16 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
+	"sync/atomic"
+)
 
 // maxConns limits the number of concurrent requests. Requests exceeding the
 // limit receive a 503 Service Unavailable response.
 type maxConns struct {
-	handler http.Handler
-	sem     chan struct{}
+	handler  http.Handler
+	sem      chan struct{}
+	rejected atomic.Int64
 }
 
 // NewMaxConns wraps h and allows at most n concurrent requests.
@@ -21,12 +25,19 @@ func NewMaxConns(n int, h http.Handler) http.Handler {
 	}
 }
 
+// Rejected returns the total number of requests that were rejected due to the
+// concurrency limit being reached.
+func (m *maxConns) Rejected() int64 {
+	return m.rejected.Load()
+}
+
 func (m *maxConns) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	select {
 	case m.sem <- struct{}{}:
 		defer func() { <-m.sem }()
 		m.handler.ServeHTTP(w, r)
 	default:
+		m.rejected.Add(1)
 		http.Error(w, "too many concurrent requests", http.StatusServiceUnavailable)
 	}
 }
