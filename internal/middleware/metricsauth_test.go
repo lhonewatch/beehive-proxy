@@ -68,3 +68,16 @@ func TestMetricsAuth_NoopWhenEmpty(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
+
+// TestMetricsAuth_BlocksMalformedAuthHeader verifies that an Authorization
+// header that is not in the "Bearer <token>" format is rejected with 401.
+func TestMetricsAuth_BlocksMalformedAuthHeader(t *testing.T) {
+	h := buildMetricsAuth("secret")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "secret") // missing "Bearer " prefix
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for malformed auth header, got %d", rec.Code)
+	}
+}
