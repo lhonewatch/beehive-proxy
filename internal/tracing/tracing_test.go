@@ -38,3 +38,15 @@ func TestDefaultTracerFunc_UniqueIDs(t *testing.T) {
 		t.Fatalf("expected unique trace IDs, both were %q", id1)
 	}
 }
+
+func TestDefaultTracerFunc_EmptyHeaderGeneratesID(t *testing.T) {
+	// Ensure that an explicitly empty header value is treated as absent
+	// and a new trace ID is generated rather than propagating an empty string.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(tracing.TraceIDHeader, "")
+
+	id := tracing.DefaultTracerFunc(req)
+	if id == "" {
+		t.Fatal("expected a non-empty trace ID when header is explicitly empty")
+	}
+}
